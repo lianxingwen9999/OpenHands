@@ -1,0 +1,343 @@
+# 缸套缺陷分级评估与智能分选系统配置文件
+
+# 系统基本信息
+system:
+  name: "Cylinder Liner Defect Grading System"
+  version: "1.0.0"
+  environment: "production"  # development, testing, production
+  debug: false
+
+# 日志配置
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file_path: "logs/system.log"
+  max_file_size: "100MB"
+  backup_count: 10
+  console_output: true
+
+# 硬件配置
+hardware:
+  # 2D线阵相机配置
+  cameras_2d:
+    count: 8
+    model: "Basler raL4096-24gm"
+    resolution: [4096, 1]
+    pixel_size: 0.05  # mm/pixel
+    frame_rate: 24000  # Hz
+    exposure_time: 50  # μs
+    trigger_mode: "external"
+
+  # 3D结构光传感器配置
+  sensors_3d:
+    count: 4
+    model: "SICK Ranger3 C55"
+    resolution: [1280, 1024]
+    z_accuracy: 0.01  # mm
+    scan_rate: 15600  # Hz
+    measurement_range: [50, 40]  # mm [width, height]
+
+  # 照明系统配置
+  lighting:
+    external_ring:
+      type: "LED_ring"
+      color_temperature: 4000  # K
+      intensity_levels: 256
+
+    coaxial:
+      type: "LED_coaxial"
+      color_temperature: 4000  # K
+      intensity_levels: 256
+
+    internal:
+      type: "LED_endoscope"
+      color_temperature: 4000  # K
+      intensity_levels: 256
+
+  # 机械系统配置
+  mechanics:
+    rotation_platform:
+      type: "servo_motor"
+      positioning_accuracy: 0.01  # degrees
+      max_speed: 360  # degrees/second
+
+    lifting_mechanism:
+      type: "linear_motor"
+      positioning_accuracy: 0.05  # mm
+      max_speed: 100  # mm/second
+
+    clamping_system:
+      type: "pneumatic"
+      pressure: 6  # bar
+      response_time: 0.1  # seconds
+
+# AI模型配置
+ai_models:
+  # 缺陷检测模型
+  defect_detection:
+    model_path: "models/defect_detection_v1.0.pth"
+    input_size: [512, 512]
+    batch_size: 4
+    confidence_threshold: 0.5
+    nms_threshold: 0.4
+
+  # 等级评估模型
+  grading_model:
+    model_path: "models/grading_model_v1.0.pth"
+    input_features: 128
+    num_classes: 4  # qualified, minor, major, reject
+    confidence_threshold: 0.8
+
+  # 分割模型
+  segmentation_model:
+    model_path: "models/segmentation_model_v1.0.pth"
+    input_size: [512, 512]
+    num_classes: 6  # background + 5 defect types
+
+# 推理引擎配置
+inference:
+  device: "cuda:0"  # cuda:0, cpu
+  precision: "fp16"  # fp32, fp16, int8
+  max_batch_size: 8
+  optimization:
+    tensorrt: true
+    dynamic_batching: true
+    model_caching: true
+
+  performance_targets:
+    max_inference_time: 2.0  # seconds
+    target_throughput: 400  # parts/hour
+    memory_limit: "8GB"
+
+# 缺陷分级规则
+grading_rules:
+  scratch:
+    qualified:
+      length: [0, 2.0]      # mm
+      width: [0, 0.1]       # mm
+      depth: [0, 0.05]      # mm
+    minor:
+      length: [2.0, 5.0]
+      width: [0.1, 0.2]
+      depth: [0.05, 0.1]
+    major:
+      length: [5.0, 10.0]
+      width: [0.2, 0.5]
+      depth: [0.1, 0.2]
+    reject:
+      length: [10.0, 999]
+      width: [0.5, 999]
+      depth: [0.2, 999]
+
+  dent:
+    qualified:
+      area: [0, 1.0]        # mm²
+      depth: [0, 0.1]       # mm
+    minor:
+      area: [1.0, 4.0]
+      depth: [0.1, 0.2]
+    major:
+      area: [4.0, 10.0]
+      depth: [0.2, 0.5]
+    reject:
+      area: [10.0, 999]
+      depth: [0.5, 999]
+
+  corrosion:
+    qualified:
+      area: [0, 0.5]        # mm²
+      depth: [0, 0.02]      # mm
+    minor:
+      area: [0.5, 2.0]
+      depth: [0.02, 0.05]
+    major:
+      area: [2.0, 5.0]
+      depth: [0.05, 0.1]
+    reject:
+      area: [5.0, 999]
+      depth: [0.1, 999]
+
+# 分选控制配置
+sorting_control:
+  channels:
+    qualified:
+      channel_id: 1
+      plc_address: "DB1.DBX0.0"
+      action_duration: 0.5  # seconds
+
+    minor:
+      channel_id: 2
+      plc_address: "DB1.DBX0.1"
+      action_duration: 0.5
+
+    major:
+      channel_id: 3
+      plc_address: "DB1.DBX0.2"
+      action_duration: 0.5
+
+    reject:
+      channel_id: 4
+      plc_address: "DB1.DBX0.3"
+      action_duration: 0.5
+
+  conveyor:
+    speed: 0.5  # m/s
+    part_spacing: 0.2  # m
+    detection_position: 1.0  # m from start
+    sorting_position: 2.0  # m from start
+
+  plc:
+    ip_address: "192.168.1.100"
+    port: 502
+    timeout: 5.0  # seconds
+    retry_count: 3
+
+# Web服务器配置
+web_server:
+  host: "0.0.0.0"
+  port: 8080
+  cors_origins: ["*"]
+  static_files_path: "static"
+  upload_path: "uploads"
+  max_file_size: "100MB"
+
+  # WebSocket配置
+  websocket:
+    ping_interval: 30
+    ping_timeout: 10
+    max_connections: 100
+
+# MES系统集成配置
+mes:
+  enabled: true
+  endpoint: "http://mes-server:8080/api/v1"
+  api_key: "your_mes_api_key_here"
+  timeout: 30  # seconds
+  retry_count: 3
+  retry_delay: 2  # seconds
+
+  # 数据同步配置
+  sync:
+    batch_size: 100
+    sync_interval: 300  # seconds
+    max_queue_size: 1000
+
+# 数据库配置
+database:
+  type: "postgresql"
+  host: "localhost"
+  port: 5432
+  database: "cylinder_defect_db"
+  username: "admin"
+  password: "password"
+  pool_size: 10
+  max_overflow: 20
+
+  # 数据保留策略
+  retention:
+    inspection_data: 365  # days
+    image_data: 90  # days
+    log_data: 30  # days
+
+# 缓存配置
+cache:
+  type: "redis"
+  host: "localhost"
+  port: 6379
+  database: 0
+  password: null
+  ttl: 3600  # seconds
+  max_memory: "1GB"
+
+# 消息队列配置
+message_queue:
+  type: "rabbitmq"
+  host: "localhost"
+  port: 5672
+  username: "admin"
+  password: "password"
+  virtual_host: "/"
+
+  queues:
+    inspection_results: "inspection_results"
+    sorting_commands: "sorting_commands"
+    system_alerts: "system_alerts"
+
+# 监控配置
+monitoring:
+  enabled: true
+  metrics_port: 9090
+  health_check_interval: 30  # seconds
+
+  alerts:
+    email:
+      enabled: true
+      smtp_server: "smtp.company.com"
+      smtp_port: 587
+      username: "alerts@company.com"
+      password: "email_password"
+      recipients: ["admin@company.com"]
+
+    thresholds:
+      cpu_usage: 80  # percent
+      memory_usage: 85  # percent
+      disk_usage: 90  # percent
+      error_rate: 5  # percent
+      response_time: 5.0  # seconds
+
+# 安全配置
+security:
+  authentication:
+    enabled: true
+    jwt_secret: "your_jwt_secret_here"
+    token_expiry: 3600  # seconds
+
+  authorization:
+    roles:
+      - "admin"
+      - "operator"
+      - "viewer"
+
+  encryption:
+    enabled: true
+    algorithm: "AES-256-GCM"
+    key_rotation_interval: 86400  # seconds
+
+# 云端服务配置
+cloud_services:
+  enabled: true
+  endpoint: "https://cloud-api.company.com"
+  api_key: "your_cloud_api_key_here"
+
+  # 增量学习配置
+  incremental_learning:
+    enabled: true
+    trigger_threshold: 1000  # new samples
+    learning_interval: 604800  # seconds (1 week)
+    model_validation_split: 0.2
+
+  # 模型更新配置
+  model_updates:
+    auto_update: true
+    update_check_interval: 86400  # seconds
+    backup_count: 5
+
+# 性能优化配置
+performance:
+  # 多线程配置
+  threading:
+    acquisition_workers: 2
+    inference_workers: 4
+    control_workers: 2
+
+  # 内存管理
+  memory:
+    image_cache_size: "2GB"
+    model_cache_size: "4GB"
+    result_cache_size: "1GB"
+
+  # GPU优化
+  gpu:
+    memory_fraction: 0.8
+    allow_growth: true
+    mixed_precision: true

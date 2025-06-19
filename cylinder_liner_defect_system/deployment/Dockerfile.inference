@@ -1,0 +1,80 @@
+# 缸套缺陷检测系统 - 推理服务 Dockerfile
+FROM nvidia/cuda:11.8-devel-ubuntu20.04
+
+# 设置环境变量
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH=${CUDA_HOME}/bin:${PATH}
+ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-dev \
+    build-essential \
+    cmake \
+    git \
+    wget \
+    curl \
+    libopencv-dev \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    libgstreamer1.0-0 \
+    gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad \
+    gstreamer1.0-plugins-ugly \
+    gstreamer1.0-libav \
+    gstreamer1.0-doc \
+    gstreamer1.0-tools \
+    && rm -rf /var/lib/apt/lists/*
+
+# 创建工作目录
+WORKDIR /app
+
+# 复制requirements文件
+COPY requirements/inference.txt /app/requirements.txt
+
+# 安装Python依赖
+RUN pip3 install --no-cache-dir --upgrade pip && \
+    pip3 install --no-cache-dir -r requirements.txt
+
+# 安装PyTorch (CUDA版本)
+RUN pip3 install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# 安装TensorRT (可选，用于模型优化)
+RUN pip3 install --no-cache-dir nvidia-tensorrt
+
+# 复制源代码
+COPY src/ /app/src/
+COPY config/ /app/config/
+COPY models/ /app/models/
+
+# 设置Python路径
+ENV PYTHONPATH=/app/src:${PYTHONPATH}
+
+# 创建必要的目录
+RUN mkdir -p /app/logs /app/data /app/temp
+
+# 设置权限
+RUN chmod +x /app/src/main.py
+
+# 创建非root用户
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app
+USER appuser
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# 暴露端口
+EXPOSE 8080
+
+# 启动命令
+CMD ["python3", "/app/src/services/inference_service.py"]

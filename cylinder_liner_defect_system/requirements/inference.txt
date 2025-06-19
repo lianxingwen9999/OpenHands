@@ -1,0 +1,121 @@
+# 缸套缺陷检测系统 - 推理服务依赖
+
+# 深度学习框架
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+transformers>=4.30.0
+
+# 计算机视觉
+opencv-python>=4.8.0
+Pillow>=10.0.0
+scikit-image>=0.21.0
+albumentations>=1.3.0
+
+# 数值计算
+numpy>=1.24.0
+scipy>=1.11.0
+pandas>=2.0.0
+
+# 机器学习
+scikit-learn>=1.3.0
+xgboost>=1.7.0
+lightgbm>=4.0.0
+
+# 3D点云处理
+open3d>=0.17.0
+trimesh>=3.22.0
+
+# 图像处理增强
+imgaug>=0.4.0
+kornia>=0.7.0
+
+# Web框架
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+websockets>=11.0.0
+aiofiles>=23.0.0
+
+# 数据库
+asyncpg>=0.28.0
+sqlalchemy>=2.0.0
+alembic>=1.11.0
+redis>=4.6.0
+
+# 消息队列
+aio-pika>=9.2.0
+celery>=5.3.0
+
+# 配置管理
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+python-dotenv>=1.0.0
+PyYAML>=6.0.0
+
+# 日志和监控
+loguru>=0.7.0
+prometheus-client>=0.17.0
+structlog>=23.1.0
+
+# HTTP客户端
+httpx>=0.24.0
+aiohttp>=3.8.0
+requests>=2.31.0
+
+# 工具库
+tqdm>=4.65.0
+click>=8.1.0
+rich>=13.4.0
+typer>=0.9.0
+
+# 序列化
+msgpack>=1.0.0
+orjson>=3.9.0
+
+# 加密和安全
+cryptography>=41.0.0
+passlib[bcrypt]>=1.7.0
+python-jose[cryptography]>=3.3.0
+
+# 时间处理
+python-dateutil>=2.8.0
+pytz>=2023.3
+
+# 文件处理
+pathlib2>=2.3.0
+watchdog>=3.0.0
+
+# 性能优化
+numba>=0.57.0
+cython>=3.0.0
+
+# GPU加速
+cupy-cuda11x>=12.0.0  # 根据CUDA版本选择
+pycuda>=2022.2
+
+# 模型优化
+onnx>=1.14.0
+onnxruntime-gpu>=1.15.0
+tensorrt>=8.6.0
+
+# 可视化
+matplotlib>=3.7.0
+seaborn>=0.12.0
+plotly>=5.15.0
+
+# 测试
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+httpx>=0.24.0  # 用于测试API
+
+# 开发工具
+black>=23.7.0
+isort>=5.12.0
+flake8>=6.0.0
+mypy>=1.5.0
+pre-commit>=3.3.0
+
+# 部署
+gunicorn>=21.2.0
+supervisor>=4.2.0
