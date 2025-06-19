@@ -1,0 +1,323 @@
+version: '3.8'
+
+services:
+  # 边缘推理服务
+  edge-inference:
+    build:
+      context: ../
+      dockerfile: deployment/Dockerfile.inference
+    container_name: cylinder-defect-inference
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../models:/app/models:ro
+      - ../config:/app/config:ro
+      - ../logs:/app/logs
+      - inference_data:/app/data
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - MODEL_PATH=/app/models/defect_detection_v1.0.pth
+      - CONFIG_PATH=/app/config/system_config.yaml
+      - LOG_LEVEL=INFO
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - cylinder-defect-network
+    depends_on:
+      - database
+      - redis
+      - rabbitmq
+
+  # 数据采集服务
+  data-acquisition:
+    build:
+      context: ../
+      dockerfile: deployment/Dockerfile.acquisition
+    container_name: cylinder-defect-acquisition
+    ports:
+      - "8081:8081"
+    volumes:
+      - ../config:/app/config:ro
+      - ../logs:/app/logs
+      - acquisition_data:/app/data
+    environment:
+      - CAMERA_CONFIG=/app/config/cameras.yaml
+      - SENSOR_CONFIG=/app/config/sensors.yaml
+      - LOG_LEVEL=INFO
+    privileged: true  # 需要访问硬件设备
+    restart: unless-stopped
+    networks:
+      - cylinder-defect-network
+    depends_on:
+      - rabbitmq
+
+  # 分选控制服务
+  sorting-control:
+    build:
+      context: ../
+      dockerfile: deployment/Dockerfile.control
+    container_name: cylinder-defect-control
+    ports:
+      - "8082:8082"
+    volumes:
+      - ../config:/app/config:ro
+      - ../logs:/app/logs
+    environment:
+      - PLC_IP=192.168.1.100
+      - CONVEYOR_CONFIG=/app/config/conveyor.yaml
+      - LOG_LEVEL=INFO
+    restart: unless-stopped
+    networks:
+      - cylinder-defect-network
+    depends_on:
+      - rabbitmq
+
+  # Web界面服务
+  web-interface:
+    build:
+      context: ../
+      dockerfile: deployment/Dockerfile.web
+    container_name: cylinder-defect-web
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../config:/app/config:ro
+      - web_static:/app/static
+    environment:
+      - REACT_APP_API_URL=http://localhost:8080
+      - REACT_APP_WS_URL=ws://localhost:8080/ws
+      - NODE_ENV=production
+    restart: unless-stopped
+    networks:
+      - cylinder-defect-network
+    depends_on:
+      - edge-inference
+
+  # 数据库服务
+  database:
+    image: postgres:13-alpine
+    container_name: cylinder-defect-db
+    environment:
+      - POSTGRES_DB=cylinder_defect_db
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=CylinderDefect2024!
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../deployment/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    networks:
+      - cylinder-defect-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d cylinder_defect_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis缓存服务
+  redis:
+    image: redis:6-alpine
+    container_name: cylinder-defect-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ../deployment/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: redis-server /usr/local/etc/redis/redis.conf
+    restart: unless-stopped
+    networks:
+      - cylinder-defect-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # RabbitMQ消息队列
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: cylinder-defect-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ../deployment/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=CylinderDefect2024!
+      - RABBITMQ_DEFAULT_VHOST=/
+    restart: unless-stopped
+    networks:
+      - cylinder-defect-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Nginx反向代理
+  nginx:
+    image: nginx:alpine
+    container_name: cylinder-defect-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../deployment/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../deployment/ssl:/etc/nginx/ssl:ro
+      - web_static:/var/www/static:ro
+    restart: unless-stopped
+    networks:
+      - cylinder-defect-network
+    depends_on:
+      - web-interface
+      - edge-inference
+
+  # 监控服务 - Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: cylinder-defect-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../deployment/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - cylinder-defect-network
+
+  # 监控服务 - Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: cylinder-defect-grafana
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../deployment/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ../deployment/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=CylinderDefect2024!
+      - GF_USERS_ALLOW_SIGN_UP=false
+    restart: unless-stopped
+    networks:
+      - cylinder-defect-network
+    depends_on:
+      - prometheus
+
+  # 日志收集服务 - ELK Stack
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.14.0
+    container_name: cylinder-defect-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    restart: unless-stopped
+    networks:
+      - cylinder-defect-network
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:7.14.0
+    container_name: cylinder-defect-logstash
+    volumes:
+      - ../deployment/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+      - ../logs:/usr/share/logstash/logs:ro
+    ports:
+      - "5044:5044"
+    restart: unless-stopped
+    networks:
+      - cylinder-defect-network
+    depends_on:
+      - elasticsearch
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.14.0
+    container_name: cylinder-defect-kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    restart: unless-stopped
+    networks:
+      - cylinder-defect-network
+    depends_on:
+      - elasticsearch
+
+  # 备份服务
+  backup:
+    build:
+      context: ../
+      dockerfile: deployment/Dockerfile.backup
+    container_name: cylinder-defect-backup
+    volumes:
+      - postgres_data:/backup/postgres:ro
+      - ../models:/backup/models:ro
+      - ../config:/backup/config:ro
+      - backup_storage:/backup/output
+    environment:
+      - BACKUP_SCHEDULE=0 2 * * *  # 每天凌晨2点备份
+      - POSTGRES_HOST=database
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=CylinderDefect2024!
+      - POSTGRES_DB=cylinder_defect_db
+    restart: unless-stopped
+    networks:
+      - cylinder-defect-network
+    depends_on:
+      - database
+
+# 网络配置
+networks:
+  cylinder-defect-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# 数据卷配置
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  rabbitmq_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  elasticsearch_data:
+    driver: local
+  inference_data:
+    driver: local
+  acquisition_data:
+    driver: local
+  web_static:
+    driver: local
+  backup_storage:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/cylinder-defect-backups
